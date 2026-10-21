@@ -27,9 +27,14 @@ Unlimited custom connectors on Pro and above; one on Free.
 **As a plugin** (adds the skill and wires the same server into Claude Code):
 
 ```
-/plugin marketplace add <this repo>
+/plugin marketplace add coreyhowe999/seqdesign-mcp
 /plugin install seqdesign
 ```
+
+In claude.ai or the desktop app, the same repo goes in under Customize →
+Plugins → Add marketplace. Plugins installed from the Claude Code CLI stay on
+that machine and do not sync to your account, so add it on the web side too if
+you want the skill available in the app, which is where artifacts render.
 
 The plugin prompts for your API key and stores it in secure storage. Create a key
 at seq.design; it needs the `jobs:read` scope.
