@@ -1,0 +1,10 @@
+name = "seqdesign-mcp"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+# Stateless pass-through: no secrets, no bindings. The caller's Authorization
+# header is forwarded to public.seq.design and never stored.
+
+[[routes]]
+pattern = "mcp.seq.design"
+custom_domain = true

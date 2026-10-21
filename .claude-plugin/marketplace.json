@@ -1,0 +1,11 @@
+{
+  "name": "seqdesign",
+  "owner": { "name": "seq.design", "url": "https://seq.design" },
+  "plugins": [
+    {
+      "name": "seqdesign",
+      "source": "./",
+      "description": "Interactive protein design results inside Claude: Mol-style structure viewer plus live metrics, served from your seq.design account."
+    }
+  ]
+}

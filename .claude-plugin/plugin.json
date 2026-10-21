@@ -1,0 +1,19 @@
+{
+  "name": "seqdesign",
+  "version": "0.1.0",
+  "description": "View seq.design protein design results as an interactive structure viewer and metrics table inside Claude, instead of opening a link.",
+  "author": { "name": "seq.design" },
+  "homepage": "https://seq.design",
+  "keywords": ["protein-design", "structural-biology", "molecular-viewer", "bioinformatics"],
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "seq.design API key",
+      "description": "Create one at https://seq.design under API keys. Needs the jobs:read scope.",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills"
+}

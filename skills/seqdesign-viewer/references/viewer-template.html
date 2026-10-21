@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design Results</title>
+<!--
+  TEMPLATE. Replace __JOB_ID__ and __SERVER__ before publishing.
+  __SERVER__ is the seq.design connector's DISPLAY NAME as the viewer sees it
+  in claude.ai, which the publish result reports. Not a slug, not a UUID.
+
+  Publish with:
+    capabilities: { mcp: { servers: [{ server: "<display name>",
+      tools: ["get_job","get_results","list_structures","get_structure"] }] } }
+
+  Viewer library is 3Dmol.js, not Mol*: artifacts may only load stylesheets
+  from Google Fonts, and Mol*'s plugin UI needs its own CSS. 3Dmol is a single
+  script with no stylesheet. To use Mol* instead, inline molstar.css in <style>.
+-->
+<script src="https://cdn.jsdelivr.net/npm/3dmol@2.5.2/build/3Dmol-min.js"></script>
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #ffffff; --ink: #1c1b1a; --muted: #6b6866;
+    --line: #e4e2df; --accent: #2f6f4f; --warn: #8a5a1b; --viewer-bg: #f4f3f1;
+    --radius: 10px;
+  }
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      --bg: #171715; --panel: #1f1f1d; --ink: #ecebe8; --muted: #9d9a96;
+      --line: #32312e; --accent: #7fc0a0; --warn: #d9a45b; --viewer-bg: #141413;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #171715; --panel: #1f1f1d; --ink: #ecebe8; --muted: #9d9a96;
+    --line: #32312e; --accent: #7fc0a0; --warn: #d9a45b; --viewer-bg: #141413;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 16px 40px; }
+  header { margin-bottom: 18px; }
+  h1 { font-size: 19px; margin: 0 0 4px; font-weight: 600; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .sub code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+
+  .grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 16px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: minmax(0,1fr); } }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .panel h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line);
+    font-weight: 600; display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
+  .stamp { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 11px; }
+
+  .scroll { max-height: 440px; overflow: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td {
+    text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--line);
+    white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  th:first-child, td:first-child { text-align: left; font-variant-numeric: normal; }
+  th {
+    position: sticky; top: 0; background: var(--panel); cursor: pointer;
+    font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.04em; user-select: none;
+  }
+  th:hover { color: var(--ink); }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  tbody tr[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+  #viewer { height: 440px; position: relative; background: var(--viewer-bg); }
+  #viewer canvas { display: block; }
+
+  .msg { padding: 20px 16px; color: var(--muted); font-size: 13px; }
+  .msg strong { color: var(--ink); display: block; margin-bottom: 4px; font-weight: 600; }
+  .msg.warn strong { color: var(--warn); }
+  button.retry {
+    margin-top: 10px; font: inherit; font-size: 13px; padding: 5px 11px;
+    border: 1px solid var(--line); background: transparent; color: var(--ink);
+    border-radius: 6px; cursor: pointer;
+  }
+  button.retry:hover { border-color: var(--accent); color: var(--accent); }
+  .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="title">Design results</h1>
+    <div class="sub">Job <code id="jobid"></code> <span id="status"></span></div>
+  </header>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Designs <span class="stamp" id="rowstamp"></span></h2>
+      <div class="scroll"><div id="tablehost" class="msg">Loading…</div></div>
+    </section>
+    <section class="panel">
+      <h2>Structure <span class="stamp" id="strname"></span></h2>
+      <div id="viewer"><div class="center msg" id="viewermsg">Select a design.</div></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const JOB_ID = "__JOB_ID__";
+const SERVER = "__SERVER__";
+
+document.getElementById("jobid").textContent = JOB_ID;
+
+let mcp = null, viewer = null, rows = [], cols = [], sortCol = null, sortDir = -1, selected = null;
+
+/* ---------- failure copy, one branch per code that has its own fix ---------- */
+function explain(err) {
+  const c = err && err.code;
+  switch (c) {
+    case "server_not_connected":
+      return { t: "seq.design is not connected", m: "Add the seq.design connector in claude.ai Settings, Connectors, then reload this page.", retry: false };
+    case "needs_reauth":
+      return { t: "seq.design needs reconnecting", m: "Your credential lapsed. Reconnect seq.design in claude.ai Settings, Connectors.", retry: false };
+    case "selection_required":
+      return { t: "More than one seq.design connector", m: "You have several connectors with this name. Choose one when claude.ai asks, then reload.", retry: false };
+    case "not_in_manifest":
+      return { t: "Not allowed for this page", m: "seq.design is turned off for this artifact, or the permission was declined.", retry: false };
+    case "blocked_by_policy":
+      return { t: "Blocked by policy", m: "Your organization blocks this connector tool.", retry: false };
+    case "approval_required":
+      return { t: "Needs your approval", m: "claude.ai has to ask before this page reads seq.design.", retry: true };
+    case "tool_error":
+      return { t: "seq.design reported a problem", m: err.message || "The job id may be wrong, or the key lacks jobs:read.", retry: false };
+    case "server_unavailable":
+      return { t: "seq.design is unreachable", m: "Temporary. Try again in a moment.", retry: true };
+    case "rate_limited":
+      return { t: "Rate limited", m: "Too many requests from this page. Wait a few seconds.", retry: true };
+    case "not_granted":
+    case "capability_disabled":
+    case "capability_removed":
+      return { t: "Connectors unavailable here", m: "Open this artifact in the Claude app or on claude.ai to load live data.", retry: false };
+    default:
+      return { t: "Could not reach seq.design", m: (err && err.message) || "Unknown failure.", retry: Boolean(err && err.retryable) };
+  }
+}
+function notice(host, err, onRetry) {
+  const e = explain(err);
+  host.innerHTML = "";
+  const d = document.createElement("div");
+  d.className = "msg warn";
+  const s = document.createElement("strong"); s.textContent = e.t;
+  const p = document.createElement("div"); p.textContent = e.m;
+  d.append(s, p);
+  if (e.retry && onRetry) {
+    const b = document.createElement("button");
+    b.className = "retry"; b.textContent = "Try again";
+    b.onclick = () => { b.disabled = true; onRetry(); };
+    d.append(b);
+  }
+  host.append(d);
+}
+const AUTHZ = new Set(["needs_reauth", "server_not_connected", "blocked_by_policy", "approval_required", "not_in_manifest", "selection_required"]);
+
+/* ---------- table ---------- */
+// Never render these. `sequence` is the pre-patent landmine: results rows carry
+// it, and a rendered column is a sequence on screen and in any screenshot.
+const HIDDEN = new Set(["sequence", "structure_path", "structure_key", "chain_map",
+  "hotspot_map", "trim_map", "rmsd_chain_map", "extra_metrics", "experiment_id",
+  "job_id", "run_id", "root_backbone_id", "parent_design_id",
+  // Row plumbing: numeric and varying, so the heuristic would otherwise keep them.
+  "id", "scoring_stage_version", "combination_id"]);
+// Engines emit ~80 columns and leave most null. Rank interest, then drop dead ones.
+const PREFERRED = ["iptm", "i_ptm", "ipsae", "ipsae_mean", "plddt", "i_plddt",
+  "binder_plddt", "ptm", "pae", "i_pae", "rmsd", "binding_energy", "pdockq",
+  "confidence_score", "final_rank", "hotspot_coverage", "sasa"];
+
+function pickColumns() {
+  const keys = Object.keys(rows[0] || {});
+  const live = keys.filter(k => {
+    if (HIDDEN.has(k) || k === "design_id") return false;
+    let seen = 0, distinct = new Set();
+    for (const r of rows) {
+      const v = r[k];
+      if (v === null || v === undefined || v === "") continue;
+      if (typeof v !== "number") return false;   // numeric metrics only
+      seen++; distinct.add(v);
+      if (distinct.size > 1 && seen > 8) break;
+    }
+    // A column that is empty, or identical for every design, cannot rank anything.
+    return seen > 0 && distinct.size > 1;
+  });
+  live.sort((a, b) => {
+    const ia = PREFERRED.indexOf(a), ib = PREFERRED.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+  return ["design_id", ...live.slice(0, 7)];
+}
+function shortId(v) {
+  const s = String(v ?? "");
+  return s.length > 18 ? s.slice(0, 8) + "…" + s.slice(-6) : s;
+}
+function fmt(v) {
+  if (v === null || v === undefined) return "";
+  if (typeof v !== "number") return String(v);
+  return Number.isInteger(v) ? String(v) : v.toFixed(3);
+}
+function renderTable() {
+  const host = document.getElementById("tablehost");
+  if (!rows.length) { host.className = "msg"; host.textContent = "No designs yet."; return; }
+  if (!cols.length) cols = pickColumns();
+
+  const sorted = sortCol
+    ? [...rows].sort((a, b) => {
+        const x = a[sortCol], y = b[sortCol];
+        if (x === null || x === undefined) return 1;      // nulls always last
+        if (y === null || y === undefined) return -1;
+        return (x > y ? 1 : x < y ? -1 : 0) * sortDir;
+      })
+    : rows;
+
+  const t = document.createElement("table");
+  const thead = t.createTHead().insertRow();
+  cols.forEach(c => {
+    const th = document.createElement("th");
+    th.textContent = (c === "design_id" ? "design" : c) + (sortCol === c ? (sortDir === 1 ? " ↑" : " ↓") : "");
+    th.onclick = () => { if (sortCol === c) sortDir = -sortDir; else { sortCol = c; sortDir = -1; } renderTable(); };
+    thead.append(th);
+  });
+  const tb = t.createTBody();
+  sorted.forEach(r => {
+    const tr = tb.insertRow();
+    if (selected && r.design_id === selected) tr.setAttribute("aria-selected", "true");
+    cols.forEach(c => {
+      const cell = tr.insertCell();
+      cell.textContent = c === "design_id" ? shortId(r[c]) : fmt(r[c]);
+      if (c === "design_id") cell.title = String(r[c] ?? "");
+    });
+    // Results rows and structures are not 1:1, so join on design_id, never index.
+    tr.onclick = () => loadStructure(r.design_id);
+  });
+
+  host.className = "";
+  host.replaceChildren(t);
+}
+
+/* ---------- viewer ---------- */
+function viewerMsg(text) {
+  const host = document.getElementById("viewer");
+  host.innerHTML = '<div class="center msg"></div>';
+  host.firstChild.textContent = text;
+}
+function draw(text, format) {
+  const host = document.getElementById("viewer");
+  host.innerHTML = "";
+  const dark = getComputedStyle(document.documentElement).getPropertyValue("--viewer-bg").trim();
+  viewer = $3Dmol.createViewer(host, { backgroundColor: dark || "#ffffff" });
+  viewer.addModel(text, format === "pdb" ? "pdb" : "cif");
+  viewer.setStyle({}, { cartoon: { colorscheme: "chain" } });
+  viewer.zoomTo();
+  viewer.render();
+}
+async function loadStructure(designId) {
+  if (!mcp || !designId) return;
+  selected = designId;
+  renderTable();
+  document.getElementById("strname").textContent = shortId(designId);
+  viewerMsg("Loading structure…");
+  try {
+    const res = await mcp.callTool(SERVER, "get_structure",
+      { job_id: JOB_ID, design_id: designId }, { cache: { staleTime: 300000 } });
+    const p = res.payload;
+    if (!p || !p.content) { viewerMsg("That design returned no coordinates."); return; }
+    if (selected !== designId) return;             // a later click won the race
+    draw(p.content, p.format);
+  } catch (err) {
+    // Not every results row has a structure; say that rather than showing a fault.
+    if (err && err.code === "tool_error" && /No structure for design_id/.test(err.message || "")) {
+      viewerMsg("This design has no stored structure. Designs the engine rejected keep their metrics but no coordinates.");
+      return;
+    }
+    notice(document.getElementById("viewer"), err, () => loadStructure(designId));
+  }
+}
+
+/* ---------- wiring ---------- */
+function watchResults() {
+  const host = document.getElementById("tablehost");
+  return mcp.watchTool(SERVER, "get_results", { job_id: JOB_ID, limit: 200 }, ev => {
+    if (ev.type === "error") {
+      // Transient failures keep last-good data; authz denials retract it.
+      if (AUTHZ.has(ev.error.code) || !rows.length) { rows = []; notice(host, ev.error, null); }
+      return;
+    }
+    const p = ev.result.payload;
+    rows = (p && p.results) || [];
+    cols = [];
+    const stamp = ev.result.cache ? new Date(ev.result.cache.storedAt).toLocaleTimeString() : null;
+    document.getElementById("rowstamp").textContent =
+      rows.length + (stamp ? " · as of " + stamp : "");
+    renderTable();
+    if (!selected && rows.length) loadStructure(rows[0].design_id);
+  }, { cache: { staleTime: 30000 }, refetchInterval: 60000 });
+}
+function watchJob() {
+  return mcp.watchTool(SERVER, "get_job", { job_id: JOB_ID }, ev => {
+    if (ev.type === "error") return;              // the table pane already reports failures
+    const d = ev.result.payload || {};
+    const bits = [];
+    if (d.status) bits.push(String(d.status));
+    if (d.completed != null && d.total != null) bits.push(d.completed + "/" + d.total);
+    if (d.accepted_designs != null) bits.push(d.accepted_designs + " accepted");
+    document.getElementById("status").textContent = bits.length ? "· " + bits.join(" · ") : "";
+    if (d.tool) document.getElementById("title").textContent = d.tool + " results";
+  }, { cache: { staleTime: 30000 }, refetchInterval: 60000 });
+}
+
+(async function init() {
+  mcp = await claude.use("mcp");
+  if (!mcp) {
+    notice(document.getElementById("tablehost"), { code: "not_granted" }, null);
+    viewerMsg("Open this page in the Claude app to load designs.");
+    return;
+  }
+  watchResults();
+  watchJob();
+})();
+</script>
+</body>
+</html>
