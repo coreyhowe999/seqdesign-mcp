@@ -7,8 +7,9 @@ Two parts that work together.
 
 **A remote MCP server** (`server/`) wrapping the seq.design public API. Stateless,
 credential pass-through, deployed as a Cloudflare Worker. It holds no keys of its
-own: whatever `Authorization` header arrives is forwarded to
-`public.seq.design/v1` and the result comes straight back.
+own: whichever credential header arrives (`X-API-Key` preferred, `Authorization`
+also accepted) is forwarded to `public.seq.design/v1` and the result comes
+straight back.
 
 **A skill** (`skills/seqdesign-viewer/`) that teaches Claude to publish an
 Artifact wired to that server through the Artifact `mcp` capability. The page
