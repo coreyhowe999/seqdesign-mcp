@@ -43,11 +43,20 @@ let parses = true;
 try { new vm.Script(src); } catch (e) { parses = false; console.log('     ' + (e as Error).message); }
 check('page script parses', parses);
 check('placeholders present', html.includes('__JOB_ID__') && html.includes('__SERVER__'));
-check('viewer library from an allowed CDN', /src="https:\/\/cdn\.jsdelivr\.net\/npm\//.test(html));
-check('no external stylesheet', !/<link[^>]+rel="stylesheet"/i.test(html));
+check('has a <title>', /<title>[^<]{3,}<\/title>/.test(html));
+// The platform wraps the file in its own skeleton, so these must not appear.
+// Comments are stripped first: the template's own notes name the tags it avoids.
+const markup = html.replace(/<!--[\s\S]*?-->/g, '');
+check('no document skeleton tags', !/<!doctype|<html[\s>]|<head[\s>]|<body[\s>]/i.test(markup));
+check('viewer library from an allowed CDN', /src="https:\/\/(cdn\.jsdelivr\.net\/npm\/|cdnjs\.cloudflare\.com)/.test(html));
+const sheets = [...html.matchAll(/<link[^>]+rel="stylesheet"[^>]*href="([^"]+)"/gi)].map((m) => m[1]);
+check('stylesheets only from Google Fonts', sheets.every((h) => h.startsWith('https://fonts.googleapis.com/')), `${sheets.length} link(s)`);
 check('dark mode guarded on :root:not([data-theme="light"])', html.includes(':root:not([data-theme="light"])'));
+check('dark palette sets color-scheme', (html.match(/color-scheme:\s*dark/g) ?? []).length >= 2);
 check('body has an explicit background', /body\s*\{[^}]*background:/.test(html));
+check('side gutter set without a zeroing shorthand', /padding-inline:\s*16px/.test(html));
 check('declares no capabilities inline', !/capabilities\s*:/.test(src));
+check('no unescaped \\u in markup', !/>[^<]*\\u[0-9a-f]{4}/i.test(html.replace(/<script[\s\S]*?<\/script>/g, '')));
 
 // Pull the column-selection logic out of the page and exercise it for real.
 const block = /\/\* -+ table -+ \*\/([\s\S]*?)function renderTable/.exec(src);

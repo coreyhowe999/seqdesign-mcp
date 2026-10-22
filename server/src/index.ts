@@ -5,9 +5,9 @@
  * published Artifact via the `mcp` capability) can read jobs, metrics and
  * structures without ever holding the user's API key in page code.
  *
- * Auth model: pass-through. claude.ai custom connectors can be configured with
- * a request header; whatever Authorization header arrives is forwarded upstream
- * verbatim. This server stores no credentials and has no key of its own.
+ * Auth model: pass-through. Whichever credential header arrives (`X-API-Key`
+ * preferred, `Authorization` also accepted) is forwarded upstream verbatim.
+ * This server stores no credentials and has no key of its own.
  */
 
 const UPSTREAM = 'https://public.seq.design/v1';
@@ -20,6 +20,27 @@ const MAX_STRUCTURE_BYTES = 4 * 1024 * 1024;
 
 type Json = Record<string, unknown>;
 
+/**
+ * Headers forwarded upstream verbatim.
+ *
+ * claude.ai reserves `Authorization` on a custom connector for its own auth, so
+ * a key configured there does not reach us intact. seq.design also accepts
+ * `X-API-Key`, which nothing in the middle touches — prefer it, and keep
+ * `Authorization` working for direct callers and for Claude Code.
+ */
+type Auth = Record<string, string>;
+
+const AUTH_HEADERS = ['x-api-key', 'authorization'];
+
+function readAuth(req: Request): Auth {
+  const out: Auth = {};
+  for (const name of AUTH_HEADERS) {
+    const v = req.headers.get(name);
+    if (v && v.trim()) out[name] = v.trim();
+  }
+  return out;
+}
+
 interface ToolDef {
   name: string;
   title: string;
@@ -31,14 +52,14 @@ interface ToolDef {
    * only caches results for tools that declare the hint on the wire.
    */
   readOnly: boolean;
-  handler: (args: Json, auth: string) => Promise<unknown>;
+  handler: (args: Json, auth: Auth) => Promise<unknown>;
 }
 
 class ToolError extends Error {}
 
-async function upstream(path: string, auth: string): Promise<Json> {
+async function upstream(path: string, auth: Auth): Promise<Json> {
   const res = await fetch(`${UPSTREAM}${path}`, {
-    headers: { Authorization: auth, 'User-Agent': UA, Accept: 'application/json' },
+    headers: { ...auth, 'User-Agent': UA, Accept: 'application/json' },
   });
   const text = await res.text();
   let body: Json;
@@ -228,7 +249,7 @@ function rpcError(id: unknown, code: number, message: string) {
   return { jsonrpc: '2.0', id, error: { code, message } };
 }
 
-async function handleRpc(msg: Json, auth: string): Promise<Json | null> {
+async function handleRpc(msg: Json, auth: Auth): Promise<Json | null> {
   const { method, id, params } = msg as { method: string; id?: unknown; params?: Json };
 
   // Notifications get no response body.
@@ -263,13 +284,13 @@ async function handleRpc(msg: Json, auth: string): Promise<Json | null> {
       const name = String(params?.name ?? '');
       const tool = TOOL_MAP.get(name);
       if (!tool) return rpcError(id, -32602, `Unknown tool: ${name}`);
-      if (!auth) {
+      if (!Object.keys(auth).length) {
         return rpcResult(id, {
           isError: true,
           content: [
             {
               type: 'text',
-              text: 'No seq.design credential reached this server. Configure the connector with an Authorization header: "Bearer <your seq.design API key>".',
+              text: 'No seq.design credential reached this server. Configure the connector with the header "X-API-Key: <your seq.design API key>". Use X-API-Key rather than Authorization: claude.ai reserves Authorization for its own connector auth, so a key put there does not arrive.',
             },
           ],
         });
@@ -305,7 +326,15 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
     if (url.pathname === '/health') {
-      return Response.json({ ok: true, tools: TOOLS.length, upstream: UPSTREAM }, { headers: CORS });
+      // Echo WHICH credential headers arrived, never their values: the only way
+      // to tell from outside whether a host stripped or replaced one.
+      const seen = Object.fromEntries(
+        AUTH_HEADERS.map((h) => [h, request.headers.get(h)?.length ?? 0]).filter(([, n]) => n),
+      );
+      return Response.json(
+        { ok: true, tools: TOOLS.length, upstream: UPSTREAM, auth_headers_seen: seen },
+        { headers: CORS },
+      );
     }
 
     if (url.pathname !== '/mcp') {
@@ -320,7 +349,7 @@ export default {
       return new Response('Method Not Allowed', { status: 405, headers: CORS });
     }
 
-    const auth = request.headers.get('Authorization') ?? '';
+    const auth = readAuth(request);
 
     let payload: unknown;
     try {

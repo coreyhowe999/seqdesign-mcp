@@ -4,7 +4,7 @@
       "type": "http",
       "url": "https://mcp.seq.design/mcp",
       "headers": {
-        "Authorization": "Bearer ${user_config.api_key}"
+        "X-API-Key": "${user_config.api_key}"
       }
     }
   }

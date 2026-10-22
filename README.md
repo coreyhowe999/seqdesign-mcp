@@ -21,8 +21,20 @@ Two routes, and you probably want both.
 
 **As a connector** (this is what makes the viewer work). In claude.ai:
 Settings, Connectors, Add custom connector. URL `https://mcp.seq.design/mcp`,
-and add a request header `Authorization: Bearer <your seq.design API key>`.
-Unlimited custom connectors on Pro and above; one on Free.
+and add a request header:
+
+```
+X-API-Key: <your seq.design API key>
+```
+
+Use `X-API-Key`, not `Authorization`. claude.ai reserves `Authorization` for a
+connector's own auth, so a key placed there does not arrive and every call comes
+back `401 Missing API key`. The server accepts either header; only one of them
+survives the trip. Unlimited custom connectors on Pro and above, one on Free.
+
+`GET /health` echoes which credential headers reached the server, by name and
+length but never value, which is the only way to tell from outside whether a
+host stripped one.
 
 **As a plugin** (adds the skill and wires the same server into Claude Code):
 
@@ -90,6 +102,10 @@ on every job.
   no credential at all. Anyone with the URL has the coordinates. That is a
   property of the API, not of this server, and it matters for unpublished work.
 - **Results rows and structures are not 1:1.** Join on `design_id`.
+- **`Authorization` does not survive a claude.ai custom connector.** Use
+  `X-API-Key`. This cost a full debugging round: the page rendered, the
+  connector resolved, the call reached the Worker, and seq.design still said
+  the key was missing.
 - **Artifacts cannot `fetch()` arbitrary origins.** The `mcp` capability is the
   only live data path. External scripts are limited to cdnjs and jsdelivr, and
   stylesheets to Google Fonts, which is why the viewer is 3Dmol.js rather than
