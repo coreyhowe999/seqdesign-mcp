@@ -1,0 +1,255 @@
+<title>Design Detail</title>
+<!--
+  DETAIL TEMPLATE — one design, inspected properly, in Mol*.
+  Pair with viewer-template.html, which is the pool-review surface.
+
+  Replace __JOB_ID__, __DESIGN_ID__ and __SERVER__ before publishing, and give
+  the page a <title> naming this design.
+
+  Publish with BOTH the capability and the stylesheet as a sibling file:
+    capabilities: { mcp: { servers: [{ server: "<display name>",
+      tools: ["get_job","get_results","get_structure"] }] } }
+    files: { "molstar.css": "<path to>/references/molstar.css" }
+
+  The stylesheet MUST ship as a sibling. Artifacts only allow external
+  stylesheets from Google Fonts, so a jsdelivr <link> is silently blocked, but a
+  file published alongside the page is same-origin and loads normally.
+
+  Mol* carries hard-coded RCSB/EBI endpoints for loading by PDB id. Every one is
+  CSP-blocked here. Only ever hand it coordinate text via loadStructureFromData.
+-->
+<link rel="stylesheet" href="molstar.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/molstar@5.13.1/build/viewer/molstar.js"></script>
+<style>
+  :root {
+    --bg: #f7f8f9; --panel: #ffffff; --ink: #12161a; --muted: #5d666e;
+    --line: #dfe3e7; --accent: #0b7285; --warn: #9a5b00;
+    --sans: "IBM Plex Sans", ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      color-scheme: dark;
+      --bg: #0f1316; --panel: #161b1f; --ink: #e8ecef; --muted: #8e979f;
+      --line: #262d33; --accent: #3fb6c8; --warn: #d99a4e;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0f1316; --panel: #161b1f; --ink: #e8ecef; --muted: #8e979f;
+    --line: #262d33; --accent: #3fb6c8; --warn: #d99a4e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--sans);
+    font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; padding-block: 22px 40px; padding-inline: 16px; }
+
+  .strip {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+    padding-bottom: 13px; margin-bottom: 16px; border-bottom: 1px solid var(--line);
+  }
+  .strip h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .did { font-family: var(--mono); font-size: 11.5px; color: var(--muted); word-break: break-all; }
+
+  /* Metric chips: the numbers that justified opening this design at all. */
+  .metrics { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .metric {
+    border: 1px solid var(--line); border-radius: 7px; background: var(--panel);
+    padding: 7px 11px; min-width: 92px;
+  }
+  .metric span {
+    display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); font-weight: 600;
+  }
+  .metric b {
+    display: block; font-family: var(--mono); font-size: 15px; font-weight: 500;
+    font-variant-numeric: tabular-nums; margin-top: 2px;
+  }
+
+  /* Mol* ships its own dark UI. Give it a neutral frame in both themes rather
+     than fighting it, and let it own everything inside the border. */
+  .viewer {
+    position: relative; height: min(68vh, 620px); min-height: 400px;
+    border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+    background: #1b1b1b;
+  }
+  #molstar { position: absolute; inset: 0; }
+
+  .msg { padding: 18px 16px; color: var(--muted); font-size: 13px; }
+  .msg b { display: block; margin-bottom: 3px; font-weight: 600; color: var(--ink); }
+  .msg[data-tone="warn"] b { color: var(--warn); }
+  .center {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    text-align: center; padding: 16px; background: var(--panel); z-index: 2;
+  }
+  button.act {
+    margin-top: 10px; font: inherit; font-size: 12.5px; padding: 5px 11px; cursor: pointer;
+    border: 1px solid var(--line); background: transparent; color: var(--ink); border-radius: 5px;
+  }
+  button.act:hover { border-color: var(--accent); color: var(--accent); }
+  .foot { margin-top: 12px; font-size: 12px; color: var(--muted); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <div class="strip">
+    <h1 id="title">Design detail</h1>
+    <div class="did" id="did"></div>
+  </div>
+  <div class="metrics" id="metrics"></div>
+  <div class="viewer">
+    <div id="molstar"></div>
+    <div class="center msg" id="gate"><div>Loading structure&hellip;</div></div>
+  </div>
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+const JOB_ID    = "__JOB_ID__";
+const DESIGN_ID = "__DESIGN_ID__";
+const SERVER    = "__SERVER__";
+
+document.getElementById("did").textContent = DESIGN_ID;
+
+let mcp = null, viewer = null;
+
+// Same deny-list as the pool view: `sequence` must never reach the screen.
+const HIDDEN = new Set(["sequence", "structure_path", "structure_key", "chain_map",
+  "hotspot_map", "trim_map", "rmsd_chain_map", "extra_metrics", "experiment_id",
+  "job_id", "run_id", "root_backbone_id", "parent_design_id", "design_id",
+  "id", "scoring_stage_version", "combination_id"]);
+const PREFERRED = ["iptm", "i_ptm", "ipsae", "ipsae_mean", "plddt", "i_plddt",
+  "binder_plddt", "ptm", "pae", "i_pae", "rmsd", "binding_energy", "pdockq",
+  "confidence_score", "final_rank", "hotspot_coverage", "sasa"];
+
+function explain(err) {
+  switch (err && err.code) {
+    case "server_not_connected":
+      return { t: "seq.design is not connected", m: "Add the seq.design connector in claude.ai Settings, Connectors, then reload." };
+    case "needs_reauth":
+      return { t: "seq.design needs reconnecting", m: "The credential lapsed. Reconnect it in claude.ai Settings, Connectors." };
+    case "selection_required":
+      return { t: "More than one seq.design connector", m: "Choose one when claude.ai asks, then reload." };
+    case "not_in_manifest":
+      return { t: "Not allowed for this page", m: "seq.design is switched off for this artifact, or the permission was declined." };
+    case "blocked_by_policy":
+      return { t: "Blocked by policy", m: "Your organization blocks this connector tool." };
+    case "approval_required":
+      return { t: "Needs your approval", m: "claude.ai asks before this page reads seq.design.", retry: true };
+    case "tool_error":
+      return { t: "seq.design reported a problem", m: err.message || "Check the job and design ids." };
+    case "server_unavailable":
+      return { t: "seq.design is unreachable", m: "Temporary. Try again in a moment.", retry: true };
+    case "rate_limited":
+      return { t: "Rate limited", m: "Wait a few seconds before retrying.", retry: true };
+    case "not_granted":
+    case "capability_disabled":
+    case "capability_removed":
+      return { t: "Connectors unavailable here", m: "Open this page in the Claude app or on claude.ai to load the structure." };
+    default:
+      return { t: "Could not reach seq.design", m: (err && err.message) || "Unknown failure.", retry: Boolean(err && err.retryable) };
+  }
+}
+function gate(err, onRetry) {
+  const host = document.getElementById("gate");
+  host.hidden = false;
+  if (!err) { host.replaceChildren(Object.assign(document.createElement("div"), { textContent: "Loading structure…" })); return; }
+  const e = explain(err);
+  const d = document.createElement("div");
+  d.className = "msg"; d.dataset.tone = "warn";
+  const b = document.createElement("b"); b.textContent = e.t;
+  const p = document.createElement("div"); p.textContent = e.m;
+  d.append(b, p);
+  if (e.retry && onRetry) {
+    const btn = document.createElement("button");
+    btn.className = "act"; btn.type = "button"; btn.textContent = "Try again";
+    btn.onclick = () => { btn.disabled = true; onRetry(); };
+    d.append(btn);
+  }
+  host.replaceChildren(d);
+}
+
+function fmt(v) {
+  if (typeof v !== "number") return String(v ?? "");
+  return Number.isInteger(v) ? String(v) : v.toFixed(3);
+}
+function renderMetrics(row) {
+  const keys = Object.keys(row)
+    .filter(k => !HIDDEN.has(k) && typeof row[k] === "number")
+    .sort((a, b) => {
+      const ia = PREFERRED.indexOf(a), ib = PREFERRED.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    })
+    .slice(0, 8);
+  const host = document.getElementById("metrics");
+  host.replaceChildren(...keys.map(k => {
+    const d = document.createElement("div"); d.className = "metric";
+    const s = document.createElement("span"); s.textContent = k;
+    const b = document.createElement("b"); b.textContent = fmt(row[k]);
+    d.append(s, b); return d;
+  }));
+  if (!keys.length) host.replaceChildren(Object.assign(document.createElement("div"),
+    { className: "msg", textContent: "This engine recorded no numeric metrics for this design." }));
+}
+
+async function show() {
+  gate(null);
+  try {
+    const res = await mcp.callTool(SERVER, "get_structure",
+      { job_id: JOB_ID, design_id: DESIGN_ID }, { cache: { staleTime: 300000 } });
+    const p = res.payload;
+    if (!p || !p.content) { gate({ code: "tool_error", message: "This design has no stored coordinates." }, null); return; }
+
+    if (!viewer) {
+      viewer = await molstar.Viewer.create(document.getElementById("molstar"), {
+        layoutIsExpanded: false,
+        layoutShowControls: true,
+        layoutShowSequence: true,     // the reason to use Mol* over 3Dmol
+        layoutShowLeftPanel: true,
+        layoutShowLog: false,
+        layoutShowRemoteState: false, // every remote source is CSP-blocked here
+        viewportShowExpand: true,
+        viewportShowSelectionMode: true,
+      });
+    }
+    // Coordinate TEXT only. Never loadPdb/loadStructureFromUrl: those reach for
+    // RCSB and EBI, and the artifact CSP blocks both silently.
+    await viewer.loadStructureFromData(p.content, p.format === "mmcif" ? "mmcif" : "pdb", {});
+    document.getElementById("gate").hidden = true;
+    document.getElementById("foot").textContent =
+      `${p.format === "mmcif" ? "mmCIF" : "PDB"} · ${p.bytes.toLocaleString()} bytes · fetched from seq.design at view time, not stored in this page.`;
+  } catch (err) {
+    gate(err, show);
+  }
+}
+
+async function loadMetrics() {
+  try {
+    const res = await mcp.callTool(SERVER, "get_results",
+      { job_id: JOB_ID, limit: 500 }, { cache: { staleTime: 60000 } });
+    const rows = res.payload?.results ?? [];
+    const row = rows.find(r => r.design_id === DESIGN_ID);
+    if (row) renderMetrics(row);
+  } catch {
+    // The structure is the point of this page; metrics are a bonus. Stay quiet.
+  }
+}
+
+(async function init() {
+  mcp = await claude.use("mcp");
+  if (!mcp) { gate({ code: "not_granted" }, null); return; }
+  if (typeof molstar === "undefined") {
+    gate({ code: "tool_error", message: "The Mol* viewer script did not load." }, null);
+    return;
+  }
+  mcp.callTool(SERVER, "get_job", { job_id: JOB_ID }, { cache: { staleTime: 60000 } })
+    .then(r => { if (r.payload?.tool) document.getElementById("title").textContent = r.payload.tool + " design"; })
+    .catch(() => {});
+  loadMetrics();
+  show();
+})();
+</script>
