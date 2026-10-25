@@ -36,6 +36,13 @@ const check = (label: string, cond: boolean, detail = '') => {
 const ref = (f: string) => new URL(`../skills/seqdesign-viewer/references/${f}`, import.meta.url);
 const read = (f: string) => readFileSync(ref(f), 'utf8');
 
+/**
+ * Strip JS comments before pattern-matching for forbidden calls. The templates
+ * document the CSP traps by naming them ("never loadPdb()"), so a naive grep
+ * flags the warning instead of a real call.
+ */
+const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
 // Hosts the artifact CSP admits for <script>. Everything else is blocked silently.
 const SCRIPT_HOSTS = ['https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net/npm/'];
 
@@ -86,7 +93,7 @@ check('placeholders present', ['__JOB_ID__', '__DESIGN_ID__', '__SERVER__'].ever
 check('links the vendored stylesheet as a sibling', /<link[^>]+href="molstar\.css"/.test(detail));
 // Mol* carries RCSB/EBI endpoints for loading by id. Every one is CSP-blocked.
 check('never loads a structure from a remote source',
-  !/loadPdb\s*\(|loadStructureFromUrl\s*\(|loadPdbDev\s*\(|setRemoteSnapshot\s*\(/.test(detailSrc));
+  !/loadPdb\s*\(|loadStructureFromUrl\s*\(|loadPdbDev\s*\(|setRemoteSnapshot\s*\(/.test(code(detailSrc)));
 check('loads coordinates from data', /loadStructureFromData\s*\(/.test(detailSrc));
 check('remote state panel disabled', /layoutShowRemoteState:\s*false/.test(detailSrc));
 
