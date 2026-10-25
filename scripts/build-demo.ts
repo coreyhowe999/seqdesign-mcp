@@ -221,6 +221,9 @@ const page = `<title>Vps29 Macrocycle Interface</title>
 
   .stage { position: relative; height: min(58vh, 520px); min-height: 340px;
     border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--stage); }
+  /* 3Dmol measures offsetWidth/offsetHeight of the element it is handed, so
+     this must have a real box of its own, not just a sized ancestor. */
+  #canvas { position: absolute; inset: 0; }
   .stage canvas { display: block; }
   .gate {
     position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
@@ -268,7 +271,7 @@ const page = `<title>Vps29 Macrocycle Interface</title>
   </div>
 
   <div class="stage">
-    <div id="stage"></div>
+    <div id="canvas"></div>
     <div class="gate" id="gate">Starting viewer&hellip;</div>
   </div>
 
@@ -396,7 +399,12 @@ function renderSequences() {
   renderSequences();
   if (typeof $3Dmol === "undefined") { fail("Viewer did not load", "The 3Dmol script was blocked or failed to parse."); return; }
   try {
-    const host = document.getElementById("stage");
+    const host = document.getElementById("canvas");
+    if (!host.clientWidth || !host.clientHeight) {
+      fail("Viewer has no size",
+        "The canvas container measured " + host.clientWidth + "x" + host.clientHeight + "px, so there is nothing to draw into.");
+      return;
+    }
     const ground = getComputedStyle(document.documentElement).getPropertyValue("--stage").trim();
     viewer = $3Dmol.createViewer(host, { backgroundColor: ground || "#ffffff" });
     const model = viewer.addModel(document.getElementById("coords").textContent.trim(), COORD_FORMAT);
@@ -414,6 +422,16 @@ function renderSequences() {
     viewer.zoomTo();
     viewer.render();
     document.getElementById("gate").hidden = true;
+
+    // The artifact pane resizes (rotation, drawer open, split view) and 3Dmol
+    // does not watch its container.
+    if (window.ResizeObserver) {
+      let t = 0;
+      new ResizeObserver(() => {
+        clearTimeout(t);
+        t = setTimeout(() => { try { viewer.resize(); viewer.render(); } catch {} }, 80);
+      }).observe(host);
+    }
     document.getElementById("foot").textContent =
       atoms.toLocaleString() + " atoms, " + CHAINS.reduce((n, c) => n + c.n, 0) + " residues, embedded in this page. "
       + "Public RCSB data, so embedding is fine here. Unpublished designs are fetched at view time instead.";

@@ -277,10 +277,23 @@ function stageMsg(text) {
 }
 function draw(text, format) {
   const host = document.getElementById("stage");
+  // 3Dmol does NOT parse mmCIF: its bundle carries one "cif" string against
+  // eight for "pdb" and loading through it yields a model with zero atoms and
+  // no error. Say so rather than drawing an empty box.
+  if (format === "mmcif") {
+    stageMsg("This design is stored as mmCIF, which this viewer cannot parse. Open the detail view for it instead.");
+    return;
+  }
   host.replaceChildren();
+  if (!host.clientWidth || !host.clientHeight) {
+    stageMsg("Viewer has no size (" + host.clientWidth + "x" + host.clientHeight + "px).");
+    return;
+  }
   const ground = getComputedStyle(document.documentElement).getPropertyValue("--stage").trim();
   viewer = $3Dmol.createViewer(host, { backgroundColor: ground || "#ffffff" });
-  viewer.addModel(text, format === "mmcif" ? "cif" : "pdb");
+  const model = viewer.addModel(text, "pdb");
+  const atoms = model && model.selectedAtoms ? model.selectedAtoms({}).length : 0;
+  if (!atoms) { stageMsg("No atoms parsed from this design's coordinates."); return; }
   viewer.setStyle({}, { cartoon: { colorscheme: "chain" } });
   viewer.zoomTo();
   viewer.render();
