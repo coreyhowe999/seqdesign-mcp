@@ -37,6 +37,17 @@ survives the trip. Unlimited custom connectors on Pro and above, one on Free.
 length but never value, which is the only way to tell from outside whether a
 host stripped one.
 
+**If the header never arrives**, use the key-in-path route instead and configure
+no headers at all:
+
+```
+https://mcp.seq.design/k/<your seq.design API key>/mcp
+```
+
+A path segment survives hosts that drop or rewrite custom headers. The cost is
+real: paths are logged where headers are not, so scope a key used this way to
+reads and rotate it freely. Prefer headers, or OAuth, where they work.
+
 **As a plugin** (adds the skill and wires the same server into Claude Code):
 
 ```

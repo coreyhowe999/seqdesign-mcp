@@ -32,12 +32,27 @@ type Auth = Record<string, string>;
 
 const AUTH_HEADERS = ['x-api-key', 'authorization'];
 
-function readAuth(req: Request): Auth {
+/**
+ * Key-in-path fallback: `/k/<key>/mcp` behaves exactly like `/mcp` with an
+ * `X-API-Key` header. Some hosts drop or rewrite custom headers on an MCP
+ * connector and give no way to see that they did; a path segment always
+ * survives. The cost is that the key lands in request logs, so a key used this
+ * way should be scoped to reads and rotated freely.
+ */
+function splitKeyPath(pathname: string): { key?: string; rest: string } {
+  const m = /^\/k\/([^/]+)(\/.*)?$/.exec(pathname);
+  if (!m) return { rest: pathname };
+  return { key: decodeURIComponent(m[1]), rest: m[2] || '/mcp' };
+}
+
+function readAuth(req: Request, pathKey?: string): Auth {
   const out: Auth = {};
   for (const name of AUTH_HEADERS) {
     const v = req.headers.get(name);
     if (v && v.trim()) out[name] = v.trim();
   }
+  // A header, where one arrives, wins over the path.
+  if (pathKey && !out['x-api-key'] && !out['authorization']) out['x-api-key'] = pathKey;
   return out;
 }
 
@@ -322,23 +337,34 @@ const CORS = {
 export default {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    const { key: pathKey, rest: path } = splitKeyPath(url.pathname);
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
-    if (url.pathname === '/health') {
+    if (path === '/health') {
       // Echo WHICH credential headers arrived, never their values: the only way
       // to tell from outside whether a host stripped or replaced one.
       const seen = Object.fromEntries(
         AUTH_HEADERS.map((h) => [h, request.headers.get(h)?.length ?? 0]).filter(([, n]) => n),
       );
       return Response.json(
-        { ok: true, tools: TOOLS.length, upstream: UPSTREAM, auth_headers_seen: seen },
+        {
+          ok: true,
+          tools: TOOLS.length,
+          upstream: UPSTREAM,
+          auth_headers_seen: seen,
+          key_in_path: Boolean(pathKey),
+          credential: Object.keys(readAuth(request, pathKey)).length ? 'present' : 'absent',
+        },
         { headers: CORS },
       );
     }
 
-    if (url.pathname !== '/mcp') {
-      return Response.json({ error: 'Not found. The MCP endpoint is /mcp.' }, { status: 404, headers: CORS });
+    if (path !== '/mcp') {
+      return Response.json(
+        { error: 'Not found. The MCP endpoint is /mcp, or /k/<api-key>/mcp when a host will not send headers.' },
+        { status: 404, headers: CORS },
+      );
     }
 
     // Stateless: no session to resume, so an SSE GET has nothing to stream.
@@ -349,7 +375,7 @@ export default {
       return new Response('Method Not Allowed', { status: 405, headers: CORS });
     }
 
-    const auth = readAuth(request);
+    const auth = readAuth(request, pathKey);
 
     let payload: unknown;
     try {
