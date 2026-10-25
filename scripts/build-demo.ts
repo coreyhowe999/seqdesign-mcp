@@ -43,7 +43,23 @@ interface Residue { chain: string; seq: number; comp: string; one: string; het: 
 
 const cif = await (await fetch(`https://files.rcsb.org/download/${ID}.cif`)).text();
 if (!cif.includes('_atom_site.')) throw new Error(`${ID}.cif has no coordinates.`);
-if (/<\/script/i.test(cif)) throw new Error(`${ID}.cif would break out of its script block.`);
+
+/**
+ * 3Dmol renders PDB, not mmCIF. Its bundle carries one "cif" string and one
+ * _atom_site reference against eight for "pdb": the mmCIF path is a stub and
+ * loading through it yields a model with zero atoms and no error. So analysis
+ * runs on the mmCIF (richer, auth numbering) and the page embeds the PDB.
+ */
+let coords = await (await fetch(`https://files.rcsb.org/download/${ID}.pdb`)).text();
+let coordFormat = 'pdb';
+if (!/^ATOM|^HETATM/m.test(coords)) {
+  // Entries too large for the PDB format have none; fall back and let the
+  // page's atom-count assertion report it rather than render an empty box.
+  coords = cif;
+  coordFormat = 'cif';
+  console.warn(`  WARNING: ${ID} has no PDB format file; falling back to mmCIF, which 3Dmol parses poorly.`);
+}
+if (/<\/script/i.test(coords)) throw new Error(`${ID} coordinates would break out of their script block.`);
 
 // --- parse the _atom_site loop -------------------------------------------
 const lines = cif.split('\n');
@@ -261,12 +277,13 @@ const page = `<title>Vps29 Macrocycle Interface</title>
 </div>
 
 <script id="chains" type="application/json">${JSON.stringify(chains)}</script>
-<script id="coords" type="chemical/x-cif">
-${cif}
+<script id="coords" type="chemical/x-${coordFormat}">
+${coords}
 </script>
 <script>
 const CHAINS = JSON.parse(document.getElementById("chains").textContent);
 const CONTACT = ${CONTACT};
+const COORD_FORMAT = ${JSON.stringify(coordFormat)};
 const CHAIN_COLOR = ["#2f8f9d", "#c2410c", "#6d6875", "#3f7d20", "#8d5524"];
 
 let viewer = null, selected = null;
@@ -290,7 +307,7 @@ function paint() {
   viewer.setStyle({}, {});
 
   for (const c of CHAINS) {
-    viewer.setStyle({ chain: c.id }, { cartoon: { color: colorOf(c.id), opacity: 0.95 } });
+    viewer.setStyle({ chain: c.id }, { cartoon: { color: colorOf(c.id) } });
   }
   // A 13-residue macrocycle is invisible as cartoon next to a 184-residue
   // domain, so always draw the short chains as sticks.
@@ -307,8 +324,7 @@ function paint() {
   if (on.iface) {
     for (const c of CHAINS) {
       if (c.interface.length) {
-        viewer.addStyle({ chain: c.id, resi: c.interface },
-          { cartoon: { color: "#e0631a", opacity: 1 } });
+        viewer.addStyle({ chain: c.id, resi: c.interface }, { cartoon: { color: "#e0631a" } });
       }
     }
   }
@@ -383,13 +399,23 @@ function renderSequences() {
     const host = document.getElementById("stage");
     const ground = getComputedStyle(document.documentElement).getPropertyValue("--stage").trim();
     viewer = $3Dmol.createViewer(host, { backgroundColor: ground || "#ffffff" });
-    viewer.addModel(document.getElementById("coords").textContent.trim(), "cif");
+    const model = viewer.addModel(document.getElementById("coords").textContent.trim(), COORD_FORMAT);
+
+    // A failed parse returns a model with no atoms and throws nothing, which
+    // renders as an empty viewer with no explanation. Refuse to pretend.
+    const atoms = model && model.selectedAtoms ? model.selectedAtoms({}).length : 0;
+    if (!atoms) {
+      fail("No atoms parsed",
+        "The " + COORD_FORMAT.toUpperCase() + " coordinates in this page did not parse into a structure.");
+      return;
+    }
+
     paint();
     viewer.zoomTo();
     viewer.render();
     document.getElementById("gate").hidden = true;
     document.getElementById("foot").textContent =
-      "Coordinates embedded in this page (" + CHAINS.reduce((n, c) => n + c.n, 0) + " residues). "
+      atoms.toLocaleString() + " atoms, " + CHAINS.reduce((n, c) => n + c.n, 0) + " residues, embedded in this page. "
       + "Public RCSB data, so embedding is fine here. Unpublished designs are fetched at view time instead.";
   } catch (e) { fail("Could not render " + ${JSON.stringify(ID)}, String((e && e.message) || e)); return; }
 
@@ -413,5 +439,5 @@ for (const c of chains) {
     (c.nonstd.length ? `  nonstd ${c.nonstd.join(',')}` : ''));
 }
 console.log(`  interface total: ${interfaceTotal} residues at ${CONTACT} A`);
-console.log(`  page: ${(page.length / 1024).toFixed(0)} KB  (cif ${(cif.length / 1024).toFixed(0)} KB)  3dmol v${version}`);
+console.log(`  page: ${(page.length / 1024).toFixed(0)} KB  (${coordFormat} ${(coords.length / 1024).toFixed(0)} KB)  3dmol v${version}`);
 console.log(`  wrote ${OUT}/${ID.toLowerCase()}-demo.html`);
