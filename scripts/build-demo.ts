@@ -110,9 +110,10 @@ const page = `<title>Vps29 Macrocycle Complex</title>
     font-variant-numeric: tabular-nums; margin-top: 2px;
   }
   .viewer {
-    position: relative; height: min(70vh, 640px); min-height: 400px;
+    position: relative; height: min(72vh, 660px); min-height: 440px;
     border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #1b1b1b;
   }
+  @media (max-width: 900px) { .viewer { height: min(68vh, 560px); min-height: 380px; } }
   #molstar { position: absolute; inset: 0; }
   .gate {
     position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
@@ -133,6 +134,7 @@ const page = `<title>Vps29 Macrocycle Complex</title>
     <div id="molstar"></div>
     <div class="gate" id="gate">Starting Mol&#42;&hellip;</div>
   </div>
+  <div class="foot" id="hint" hidden>Panels are hidden at this width. Use the expand control in the viewer for the sequence panel and structure tools.</div>
   <div class="foot" id="foot"></div>
 </div>
 
@@ -158,14 +160,22 @@ function fail(title, detail) {
   }
   const cif = document.getElementById("coords").textContent.trim();
   try {
+    // Mol*'s desktop chrome costs ~420px of height; on a phone that leaves the
+    // molecule a sliver. Hide the panels when narrow and give the canvas the box.
+    const wide = window.matchMedia("(min-width: 900px)").matches;
     const viewer = await molstar.Viewer.create(document.getElementById("molstar"), {
       layoutIsExpanded: false,
-      layoutShowControls: true,
-      layoutShowSequence: true,
-      layoutShowLeftPanel: true,
+      layoutShowControls: wide,
+      layoutShowSequence: wide,
+      layoutShowLeftPanel: wide,
       layoutShowLog: false,
       layoutShowRemoteState: false,  // every remote source is CSP-blocked here
+      collapseLeftPanel: true,
+      viewportShowExpand: true,
+      viewportShowReset: true,
+      viewportShowSelectionMode: wide,
     });
+    if (!wide) document.getElementById("hint").hidden = false;
     // Coordinates are already in the page. Never loadPdb(): it reaches for RCSB
     // and the artifact CSP blocks it silently.
     await viewer.loadStructureFromData(cif, "mmcif", {});

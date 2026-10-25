@@ -72,10 +72,11 @@
   /* Mol* ships its own dark UI. Give it a neutral frame in both themes rather
      than fighting it, and let it own everything inside the border. */
   .viewer {
-    position: relative; height: min(68vh, 620px); min-height: 400px;
+    position: relative; height: min(72vh, 660px); min-height: 440px;
     border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
     background: #1b1b1b;
   }
+  @media (max-width: 900px) { .viewer { height: min(68vh, 560px); min-height: 380px; } }
   #molstar { position: absolute; inset: 0; }
 
   .msg { padding: 18px 16px; color: var(--muted); font-size: 13px; }
@@ -105,6 +106,7 @@
     <div id="molstar"></div>
     <div class="center msg" id="gate"><div>Loading structure&hellip;</div></div>
   </div>
+  <div class="foot" id="hint" hidden>Panels are hidden at this width. Use the expand control in the viewer for the sequence panel and structure tools.</div>
   <div class="foot" id="foot"></div>
 </div>
 
@@ -205,16 +207,24 @@ async function show() {
     if (!p || !p.content) { gate({ code: "tool_error", message: "This design has no stored coordinates." }, null); return; }
 
     if (!viewer) {
+      // Mol*'s desktop chrome (sequence strip + left panel + Structure Tools)
+      // costs ~420px of height. On a phone that leaves the molecule a sliver,
+      // so hide the panels and give the whole box to the canvas; the viewport's
+      // own expand button is the way back to the full UI there.
+      const wide = window.matchMedia("(min-width: 900px)").matches;
       viewer = await molstar.Viewer.create(document.getElementById("molstar"), {
         layoutIsExpanded: false,
-        layoutShowControls: true,
-        layoutShowSequence: true,     // the reason to use Mol* over 3Dmol
-        layoutShowLeftPanel: true,
+        layoutShowControls: wide,
+        layoutShowSequence: wide,     // the reason to use Mol* over 3Dmol
+        layoutShowLeftPanel: wide,
         layoutShowLog: false,
         layoutShowRemoteState: false, // every remote source is CSP-blocked here
+        collapseLeftPanel: true,
         viewportShowExpand: true,
-        viewportShowSelectionMode: true,
+        viewportShowReset: true,
+        viewportShowSelectionMode: wide,
       });
+      if (!wide) document.getElementById("hint").hidden = false;
     }
     // Coordinate TEXT only. Never loadPdb/loadStructureFromUrl: those reach for
     // RCSB and EBI, and the artifact CSP blocks both silently.
